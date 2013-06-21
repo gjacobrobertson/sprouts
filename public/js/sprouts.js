@@ -3,105 +3,147 @@ var width = 768,
 
 var radius=5;
 
-var segment_length = 1;
+var segmentLength = 1;
+var reductionFactor = 20;
 
 var paper = Raphael(document.getElementById('graph'), width, height);
 var frame = paper.rect(0, 0, width, height)
                  .attr({fill: 'white'});
 
-var source = null,
-    target = null;
+var nodes = [],
+    paths = [];
 
-var path_coords = null,
-    path = null;
+var action = null;
 
 create_nodes(3);
 
+function Node(x, y) {
+  this.x = x;
+  this.y = y;
+  this.tracePath = function() {
+  };
+  this.draw = function() {
+    if(this.circle != null) {
+      this.circle.remove();
+    }
+    this.circle = paper.circle(this.x, this.y, radius)
+                       .mousedown(mousedownHandler)
+                       .mouseup(mouseupHandler)
+                       .attr('fill', 'black');
+  };
+  nodes.push(this);
+}
+
+function Path() {
+  this.points = [];
+  this.append = function(x, y) {
+    this.points.push([x, y]);
+  }
+
+  this.drawPolyline = function() {
+    if (this.path != null) {
+      this.remove();
+    }
+    p = [["M", this.points[0][0], this.points[0][1]]];
+    for(i = 1; i < this.points.length; i ++) {
+      p.push(["L", this.points[i][0], this.points[i][1]]);
+    }
+    this.path = paper.path(p);
+  }
+
+  this.drawSmooth = function() {
+    if (this.path != null) {
+      this.remove();
+    }
+    p = [["M", this.points[0][0], this.points[0][1]]];
+    curve = ["R"];
+    for(i = 1; i < this.points.length; i++) {
+      curve.push(this.points[i][0]);
+      curve.push(this.points[i][1]);
+    }
+    p.push(curve);
+    console.log(p);
+    this.path = paper.path(p);
+  }
+
+  this.length = function() {
+    return this.path.getTotalLength();
+  }
+
+  this.midpoint = function() {
+    return this.path.getPointAtLength(this.length() / 2);
+  }
+
+  this.split = function() {
+    subpath1 = this.parse(this.path.getSubpath(0, this.length() / 2));
+    subpath2 = this.parse(this.path.getSubpath(this.length() / 2, this.length()));
+    return [subpath1, subpath2];
+  }
+
+  this.parse = function(pString) {
+    newPath = new Path();
+    length = Raphael.getTotalLength(pString);
+    for(l = 0; l < length - reductionFactor; l += reductionFactor) {
+      point = Raphael.getPointAtLength(pString, l);
+      newPath.append(point.x, point.y);
+    }
+    point = Raphael.getPointAtLength(pString, length);
+    newPath.append(point.x, point.y);
+    return newPath;
+  }
+
+  this.remove = function() {
+    this.path.remove();
+  }
+}
+
+function Action(source, target, path) {
+  this.source = source;
+  this.target = target;
+  this.path = path;
+  this.play = function() {
+    midpoint = this.path.midpoint();
+    new Node(midpoint.x, midpoint.y).draw();
+    subpaths = path.split();
+    subpaths.forEach(function(subpath) {
+      paths.push(subpath);
+      subpath.drawSmooth();
+    });
+    this.path.remove();
+  };
+}
+
+function mouseupHandler() {
+  if (action != null) {
+    action.path.append(this.attr('cx'), this.attr('cy'));
+    action.path.drawPolyline();
+    action.play();
+    action = null;
+    frame.unmousemove(mousemoveHandler);
+  }
+}
+
+function mousedownHandler() {
+  if (action == null) {
+    action = new Action(this,null, new Path());
+    action.path.append(this.attr('cx'), this.attr('cy'));
+    frame.mousemove(mousemoveHandler);
+  }
+}
+function mousemoveHandler(e) {
+    cursor = [e.offsetX, e.offsetY];
+    if (distance(action.path.points[action.path.points.length - 1], cursor) > segmentLength) {
+      action.path.append(cursor[0], cursor[1]);
+    }
+    action.path.drawPolyline();
+}
 function create_nodes(n) {
   for (i=0;i<n;i++){
-    var x = Math.random() * (width - 2 * radius) + radius;
-    var y = Math.random() * (height - 2 * radius) + radius;
-    create_node(x, y);
+    x = Math.random() * (width - 2 * radius) + radius;
+    y = Math.random() * (height - 2 * radius) + radius;
+    node = new Node(x, y);
+    node.draw();
   }
-}
-
-function create_node(x, y) {
-  //paper.circle(x, y, radius)
-  //     .click(node_handler);
-  paper.circle(x, y, radius)
-       .mousedown(node_mousedown)
-       .mouseup(node_mouseup)
-       .attr('fill', 'black');
-}
-
-function node_mousedown(e) {
-  if (source == null) {
-    source = this;
-    path_coords = [[this.attr('cx'), this.attr('cy')]]
-    frame.mousemove(trace_path);
-  }
-}
-
-function node_mouseup() {
-  if (source != null) {
-    path_coords.push([this.attr('cx'), this.attr('cy')]);
-    draw_path();
-    play_path();
-    source = null;
-    frame.unmousemove(trace_path);
-  }
-}
-
-function trace_path(e) {
-  cursor = [e.offsetX, e.offsetY];
-  if (distance(path_coords[path_coords.length - 1], cursor) > segment_length) {
-    path_coords.push(cursor);
-  }
-  draw_path();
-}
-
-function draw_path() {
-  p = [["M", path_coords[0][0], path_coords[0][1]]];
-  for(i = 1; i < path_coords.length; i ++) {
-    p.push(["L", path_coords[i][0], path_coords[i][1]]);
-  }
-  if (path != null) {
-    path.remove();
-  }
-  path = paper.path(p);
-}
-
-function play_path() {
-  length = path.getTotalLength();
-  midpoint = path.getPointAtLength(length / 2);
-  create_node(midpoint.x, midpoint.y);
-  subpath1 = path.getSubpath(0, length/2);
-  subpath2 = path.getSubpath(length/2, length);
-  reduce_path(subpath1);
-  reduce_path(subpath2);
-  path.remove()
-}
-
-function reduce_path(pString) {
-  reduced = [];
-  length = Raphael.getTotalLength(pString);
-  for(l = 0; l < length - 20; l += 20) {
-    var point = Raphael.getPointAtLength(pString, l);
-    reduced.push(point);
-  }
-  reduced.push(Raphael.getPointAtLength(pString, length));
-  draw_reduced_path(reduced);
-}
-
-function draw_reduced_path(reduced) {
-  p = [["M", reduced[0].x, reduced[0].y]];
-  curve = ["R"];
-  for(i = 1; i < reduced.length; i++) {
-    curve.push(reduced[i].x);
-    curve.push(reduced[i].y);
-  }
-  p.push(curve);
-  paper.path(p);
 }
 
 function distance(v1, v2) {
